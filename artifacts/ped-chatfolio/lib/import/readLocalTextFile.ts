@@ -1,5 +1,6 @@
 import type { DocumentPickerAsset } from 'expo-document-picker';
-import { File, Paths } from 'expo-file-system';
+import { File } from 'expo-file-system';
+import { Platform } from 'react-native';
 
 export type LocalTextFileReadResult = {
   text: string;
@@ -8,7 +9,7 @@ export type LocalTextFileReadResult = {
   characterCount: number;
 };
 
-export type LocalTextFileErrorPhase = 'copy' | 'read' | 'decode';
+export type LocalTextFileErrorPhase = 'read' | 'decode';
 
 export class LocalTextFileError extends Error {
   constructor(
@@ -24,11 +25,6 @@ function uriScheme(uri: string): string {
   return uri.split(':', 1)[0]?.toLowerCase() || 'unknown';
 }
 
-function safeCacheFileName(fileName: string): string {
-  const cleaned = fileName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-80);
-  return cleaned || 'whatsapp-export.txt';
-}
-
 function errorName(error: unknown): string {
   return error instanceof Error ? error.name : 'UnknownError';
 }
@@ -37,65 +33,74 @@ export async function readLocalTextFile(
   asset: DocumentPickerAsset,
 ): Promise<LocalTextFileReadResult> {
   const sourceUriScheme = uriScheme(asset.uri);
+
   console.info('[PED Chatfolio import] selected file', {
     fileName: asset.name,
     mimeType: asset.mimeType ?? 'unknown',
     fileSize: asset.size ?? null,
     uriScheme: sourceUriScheme,
-    copyToCacheDirectory: true,
+    platform: Platform.OS,
   });
 
-  let readableFile = new File(asset.uri);
-  if (sourceUriScheme === 'content') {
-    const cacheFile = new File(
-      Paths.cache,
-      `ped-chatfolio-${Date.now()}-${safeCacheFileName(asset.name)}`,
-    );
-    try {
-      await readableFile.copy(cacheFile);
-      readableFile = cacheFile;
-      console.info('[PED Chatfolio import] copied content URI to cache', {
-        resolvedUriScheme: uriScheme(readableFile.uri),
-      });
-    } catch (error) {
-      console.warn('[PED Chatfolio import] content URI copy failed', {
-        phase: 'copy',
-        uriScheme: sourceUriScheme,
-        errorName: errorName(error),
-      });
-      throw new LocalTextFileError('copy', 'The selected Android file could not be copied into app cache.');
-    }
-  }
-
   let text: string;
+  let resolvedUriScheme = sourceUriScheme;
+
   try {
-    text = await readableFile.text();
-    console.info('[PED Chatfolio import] file read succeeded', {
-      readApi: 'File.text',
-      resolvedUriScheme: uriScheme(readableFile.uri),
-      characterCount: text.length,
-    });
+    // WEB / REPLIT PREVIEW
+    // DocumentPicker exposes the browser File object as asset.file.
+    if (Platform.OS === 'web') {
+      if (!asset.file) {
+        throw new Error('Browser File object is unavailable.');
+      }
+
+      text = await asset.file.text();
+      resolvedUriScheme = 'browser-file';
+
+      console.info('[PED Chatfolio import] web file read succeeded', {
+        readApi: 'asset.file.text',
+        characterCount: text.length,
+      });
+    }
+
+    // NATIVE ANDROID / IOS
+    else {
+      const readableFile = new File(asset.uri);
+
+      text = await readableFile.text();
+      resolvedUriScheme = uriScheme(readableFile.uri);
+
+      console.info('[PED Chatfolio import] native file read succeeded', {
+        readApi: 'File.text',
+        sourceUriScheme,
+        resolvedUriScheme,
+        characterCount: text.length,
+      });
+    }
   } catch (error) {
     console.warn('[PED Chatfolio import] file read failed', {
       phase: 'read',
-      resolvedUriScheme: uriScheme(readableFile.uri),
+      platform: Platform.OS,
+      sourceUriScheme,
       errorName: errorName(error),
     });
-    throw new LocalTextFileError('read', 'The selected file could not be read on this device.');
+
+    throw new LocalTextFileError(
+      'read',
+      'The selected file could not be read on this device.',
+    );
   }
 
   if (typeof text !== 'string') {
-    console.warn('[PED Chatfolio import] text decoding failed', {
-      phase: 'decode',
-      resolvedUriScheme: uriScheme(readableFile.uri),
-    });
-    throw new LocalTextFileError('decode', 'The selected file could not be decoded as text.');
+    throw new LocalTextFileError(
+      'decode',
+      'The selected file could not be decoded as text.',
+    );
   }
 
   return {
     text,
     sourceUriScheme,
-    resolvedUriScheme: uriScheme(readableFile.uri),
+    resolvedUriScheme,
     characterCount: text.length,
   };
 }

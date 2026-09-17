@@ -62,14 +62,68 @@ function parseMessageStart(line: string): MessageStart | null {
 }
 
 function parseDate(rawDate: string): { dateKey: string; label: string } | null {
-  const [dayText, monthText, yearText] = rawDate.split('/');
-  const day = Number(dayText);
-  const month = Number(monthText);
-  const year = yearText.length === 2 ? 2000 + Number(yearText) : Number(yearText);
-  if (!Number.isInteger(day) || !Number.isInteger(month) || !Number.isInteger(year)) return null;
-  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const parts = rawDate.split('/');
+  if (parts.length !== 3) return null;
+
+  const first = Number(parts[0]);
+  const second = Number(parts[1]);
+  const yearText = parts[2];
+
+  const year =
+    yearText.length === 2
+      ? 2000 + Number(yearText)
+      : Number(yearText);
+
+  if (
+    !Number.isInteger(first) ||
+    !Number.isInteger(second) ||
+    !Number.isInteger(year)
+  ) {
+    return null;
+  }
+
+  let day: number;
+  let month: number;
+
+  /*
+   * WhatsApp exports can use either:
+   * DD/MM/YY
+   * MM/DD/YY
+   *
+   * If one component is greater than 12, we can determine
+   * the format safely.
+   */
+  if (first > 12 && second <= 12) {
+    // DD/MM/YY
+    day = first;
+    month = second;
+  } else if (second > 12 && first <= 12) {
+    // MM/DD/YY
+    month = first;
+    day = second;
+  } else {
+    /*
+     * Ambiguous dates such as 8/4/26 could mean
+     * 8 April or August 4.
+     *
+     * For now, default to MM/DD/YY because the current
+     * export has been identified as using that format.
+     */
+    month = first;
+    day = second;
+  }
+
+  if (
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31
+  ) {
+    return null;
+  }
 
   const parsed = new Date(year, month - 1, day);
+
   if (
     parsed.getFullYear() !== year ||
     parsed.getMonth() !== month - 1 ||
@@ -78,10 +132,15 @@ function parseDate(rawDate: string): { dateKey: string; label: string } | null {
     return null;
   }
 
-  const dateKey = `${year.toString().padStart(4, '0')}-${month.toString().padStart(2, '0')}-${day
-    .toString()
-    .padStart(2, '0')}`;
-  const label = `${weekdayNames[parsed.getDay()]}, ${day} ${monthNames[month - 1]} ${year}`;
+  const dateKey =
+    `${year.toString().padStart(4, '0')}-` +
+    `${month.toString().padStart(2, '0')}-` +
+    `${day.toString().padStart(2, '0')}`;
+
+  const label =
+    `${weekdayNames[parsed.getDay()]}, ` +
+    `${day} ${monthNames[month - 1]} ${year}`;
+
   return { dateKey, label };
 }
 
