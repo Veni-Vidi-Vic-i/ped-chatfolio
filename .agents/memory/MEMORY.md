@@ -1,0 +1,1 @@
+- [Expo local file imports](expo-local-file-imports.md) — copy Android content URIs before reading; keep native file-system APIs out of web-only route bundles.

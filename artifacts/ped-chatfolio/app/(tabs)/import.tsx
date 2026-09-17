@@ -1,6 +1,5 @@
 import { Feather } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
-import { File } from 'expo-file-system';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -9,6 +8,10 @@ import { BrandMark } from '@/components/BrandMark';
 import { IconButton } from '@/components/IconButton';
 import { useChatLibrary } from '@/context/ChatLibraryContext';
 import { useColors } from '@/hooks/useColors';
+import {
+  LocalTextFileError,
+  readLocalTextFile,
+} from '@/lib/import/readLocalTextFile';
 import {
   archiveNameFromFileName,
   parseWhatsAppExport,
@@ -37,10 +40,51 @@ export default function ImportScreen() {
         return;
       }
 
-      const text = await new File(asset.uri).text();
-      const parsed = parseWhatsAppExport(text);
+      let text: string;
+      try {
+        const readResult = await readLocalTextFile(asset);
+        text = readResult.text;
+      } catch (readError) {
+        if (readError instanceof LocalTextFileError) {
+          if (readError.phase === 'copy') {
+            setError('Android could not copy the selected file into app storage. Please select it again.');
+          } else if (readError.phase === 'decode') {
+            setError('The file was opened, but it could not be decoded as text.');
+          } else {
+            setError('The file was selected but could not be read on this device.');
+          }
+        } else {
+          setError('The selected file could not be read on this device.');
+        }
+        return;
+      }
+
+      let parsed;
+      try {
+        parsed = parseWhatsAppExport(text);
+        console.info('[PED Chatfolio import] WhatsApp parse completed', {
+          characterCount: text.length,
+          messageCount: parsed.messages.length,
+          participantCount: parsed.participants.length,
+          ignoredLineCount: parsed.ignoredLineCount,
+        });
+      } catch (parseError) {
+        console.warn('[PED Chatfolio import] WhatsApp parse failed', {
+          phase: 'parse',
+          errorName: parseError instanceof Error ? parseError.name : 'UnknownError',
+          characterCount: text.length,
+        });
+        setError('The file was read, but the WhatsApp conversation could not be parsed.');
+        return;
+      }
+
       if (!parsed.messages.length || !parsed.firstMessageDate || !parsed.lastMessageDate) {
-        setError('No readable WhatsApp messages were found in that file.');
+        console.info('[PED Chatfolio import] WhatsApp parse found no messages', {
+          characterCount: text.length,
+          messageCount: parsed.messages.length,
+          ignoredLineCount: parsed.ignoredLineCount,
+        });
+        setError('The file was read, but no WhatsApp messages were detected.');
         return;
       }
 
