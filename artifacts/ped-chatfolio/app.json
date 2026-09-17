@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "PED Chatfolio",
+    "slug": "ped-chatfolio",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "ped-chatfolio",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "backgroundColor": "#F6F1E8",
+      "image": "./assets/images/icon.png",
+      "resizeMode": "contain"
+    },
+    "ios": {
+      "supportsTablet": false
+    },
+    "android": {},
+    "web": {
+      "favicon": "./assets/images/icon.png"
+    },
+    "plugins": ["expo-router"],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}
