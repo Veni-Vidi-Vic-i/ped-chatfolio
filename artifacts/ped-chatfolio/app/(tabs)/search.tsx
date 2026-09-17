@@ -5,19 +5,28 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BrandMark } from '@/components/BrandMark';
 import { IconButton } from '@/components/IconButton';
-import { allSearchResults } from '@/data/mockChats';
+import type { SearchResult } from '@/data/mockChats';
+import { useChatLibrary } from '@/context/ChatLibraryContext';
 import { useColors } from '@/hooks/useColors';
 
 export default function SearchScreen() {
   const colors = useColors();
+  const { archives } = useChatLibrary();
   const [query, setQuery] = useState<string>('');
   const results = useMemo(() => {
+    const allResults: SearchResult[] = archives.flatMap((chat) =>
+      chat.messages.map((message) => ({
+        ...message,
+        chatId: chat.id,
+        chatTitle: chat.title,
+      })),
+    );
     const normalized = query.trim().toLowerCase();
-    if (!normalized) return allSearchResults.slice(0, 4);
-    return allSearchResults.filter((result) =>
+    if (!normalized) return allResults.slice(0, 4);
+    return allResults.filter((result) =>
       `${result.text} ${result.senderLabel} ${result.chatTitle}`.toLowerCase().includes(normalized),
     );
-  }, [query]);
+  }, [archives, query]);
 
   return (
     <SafeAreaView edges={['top']} style={[styles.safe, { backgroundColor: colors.background }]}>

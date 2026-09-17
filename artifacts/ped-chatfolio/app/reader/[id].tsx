@@ -5,12 +5,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { IconButton } from '@/components/IconButton';
 import { MessageRow } from '@/components/MessageRow';
 import { getChatById } from '@/data/mockChats';
+import { useChatLibrary } from '@/context/ChatLibraryContext';
 import { useColors } from '@/hooks/useColors';
 
 export default function ChatReaderScreen() {
   const colors = useColors();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const chat = getChatById(id);
+  const { getArchiveById } = useChatLibrary();
+  const chat = getArchiveById(id) ?? getChatById(id);
   let previousDate = '';
 
   return (

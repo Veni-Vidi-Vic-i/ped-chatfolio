@@ -1,17 +1,66 @@
 import { Feather } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
+import { File } from 'expo-file-system';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BrandMark } from '@/components/BrandMark';
 import { IconButton } from '@/components/IconButton';
+import { useChatLibrary } from '@/context/ChatLibraryContext';
 import { useColors } from '@/hooks/useColors';
-
-type SelectedFile = { name: string; size: string };
+import {
+  archiveNameFromFileName,
+  parseWhatsAppExport,
+} from '@/lib/parsers/whatsapp';
 
 export default function ImportScreen() {
   const colors = useColors();
-  const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
+  const { setPendingImport } = useChatLibrary();
+  const [isPicking, setIsPicking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const pickFile = async () => {
+    setError(null);
+    setIsPicking(true);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'text/plain',
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (result.canceled) return;
+
+      const asset = result.assets[0];
+      if (!asset || !asset.name.toLowerCase().endsWith('.txt')) {
+        setError('Choose a WhatsApp .txt export to continue.');
+        return;
+      }
+
+      const text = await new File(asset.uri).text();
+      const parsed = parseWhatsAppExport(text);
+      if (!parsed.messages.length || !parsed.firstMessageDate || !parsed.lastMessageDate) {
+        setError('No readable WhatsApp messages were found in that file.');
+        return;
+      }
+
+      setPendingImport({
+        fileName: asset.name,
+        fileSize: asset.size,
+        messages: parsed.messages,
+        participants: parsed.participants,
+        firstMessageDate: parsed.firstMessageDate,
+        lastMessageDate: parsed.lastMessageDate,
+        defaultName: archiveNameFromFileName(asset.name),
+        ignoredLineCount: parsed.ignoredLineCount,
+      });
+      router.push('/import-review');
+    } catch {
+      setError('That file could not be read. Make sure it is an exported WhatsApp .txt file.');
+    } finally {
+      setIsPicking(false);
+    }
+  };
 
   return (
     <SafeAreaView edges={['top']} style={[styles.safe, { backgroundColor: colors.background }]}>
@@ -34,29 +83,36 @@ export default function ImportScreen() {
             <Feather name="file-text" size={27} color={colors.primary} />
           </View>
           <Text style={[styles.dropTitle, { color: colors.foreground }]}>
-            {selectedFile ? selectedFile.name : 'WhatsApp chat export'}
+            WhatsApp chat export
           </Text>
           <Text style={[styles.dropText, { color: colors.mutedForeground }]}>
-            {selectedFile
-              ? `${selectedFile.size} · ready for the next step`
-              : 'Select the .txt file exported from WhatsApp'}
+            Select the .txt file exported from WhatsApp. It stays on this device.
           </Text>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Choose WhatsApp text export"
-            onPress={() => setSelectedFile({ name: 'WhatsApp Chat — Studio.txt', size: '18 KB' })}
+            disabled={isPicking}
+            onPress={pickFile}
             style={({ pressed }) => [
               styles.chooseButton,
               { backgroundColor: colors.primary },
               pressed && styles.pressed,
+              isPicking && styles.disabled,
             ]}
           >
-            <Feather name={selectedFile ? 'check' : 'plus'} size={16} color={colors.primaryForeground} />
+            <Feather name={isPicking ? 'loader' : 'plus'} size={16} color={colors.primaryForeground} />
             <Text style={[styles.chooseLabel, { color: colors.primaryForeground }]}>
-              {selectedFile ? 'File selected' : 'Choose a .txt export'}
+              {isPicking ? 'Reading file…' : 'Choose a .txt export'}
             </Text>
           </Pressable>
         </View>
+
+        {error ? (
+          <View style={[styles.error, { backgroundColor: colors.muted }]}>
+            <Feather name="alert-circle" size={16} color={colors.destructive} />
+            <Text style={[styles.errorText, { color: colors.destructive }]}>{error}</Text>
+          </View>
+        ) : null}
 
         <View style={styles.steps}>
           <Text style={[styles.stepsTitle, { color: colors.foreground }]}>How it will work</Text>
@@ -75,7 +131,7 @@ export default function ImportScreen() {
         <View style={[styles.futureNote, { backgroundColor: colors.muted }]}>
           <Feather name="info" size={16} color={colors.mutedForeground} />
           <Text style={[styles.futureText, { color: colors.mutedForeground }]}>
-            This foundation build stops at file selection. Parsing, duplicate detection and incremental imports come next.
+            Chat contents are read and parsed entirely on-device. Duplicate detection and incremental imports are not part of this phase.
           </Text>
         </View>
       </ScrollView>
@@ -98,6 +154,9 @@ const styles = StyleSheet.create({
   chooseButton: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 17, paddingVertical: 13, marginTop: 22 },
   chooseLabel: { fontSize: 12, fontFamily: 'Inter_700Bold' },
   pressed: { opacity: 0.78 },
+  disabled: { opacity: 0.58 },
+  error: { flexDirection: 'row', gap: 10, padding: 14, marginTop: 18 },
+  errorText: { flex: 1, fontSize: 12, lineHeight: 18, fontFamily: 'Inter_500Medium' },
   steps: { marginTop: 35 },
   stepsTitle: { fontSize: 18, fontFamily: 'Inter_700Bold', marginBottom: 4 },
   step: { flexDirection: 'row', alignItems: 'center', gap: 17, borderBottomWidth: 1, paddingVertical: 16 },

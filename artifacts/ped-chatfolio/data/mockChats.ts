@@ -1,4 +1,5 @@
 export type MessagePresentation = 'chat' | 'manuscript';
+export type ChatSource = 'whatsapp' | 'mock';
 
 export type ChatMessage = {
   id: string;
@@ -7,6 +8,7 @@ export type ChatMessage = {
   text: string;
   timestamp: string;
   date: string;
+  source?: ChatSource;
 };
 
 export type ChatArchive = {

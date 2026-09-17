@@ -5,11 +5,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { BrandMark } from '@/components/BrandMark';
 import { IconButton } from '@/components/IconButton';
 import { LibraryCard } from '@/components/LibraryCard';
-import { mockChats } from '@/data/mockChats';
+import { useChatLibrary } from '@/context/ChatLibraryContext';
 import { useColors } from '@/hooks/useColors';
 
 export default function LibraryScreen() {
   const colors = useColors();
+  const { archives } = useChatLibrary();
 
   return (
     <SafeAreaView edges={['top']} style={[styles.safe, { backgroundColor: colors.background }]}>
@@ -54,10 +55,12 @@ export default function LibraryScreen() {
 
         <View style={styles.sectionHeader}>
           <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Recent conversations</Text>
-          <Text style={[styles.sectionMeta, { color: colors.mutedForeground }]}>03 ARCHIVES</Text>
+          <Text style={[styles.sectionMeta, { color: colors.mutedForeground }]}>
+            {archives.length.toString().padStart(2, '0')} ARCHIVES
+          </Text>
         </View>
 
-        {mockChats.map((chat) => (
+        {archives.map((chat) => (
           <LibraryCard
             key={chat.id}
             chat={chat}

@@ -4,6 +4,8 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { ChatLibraryProvider } from '@/context/ChatLibraryContext';
+import { mockChats } from '@/data/mockChats';
 import {
   Inter_400Regular,
   Inter_500Medium,
@@ -24,6 +26,7 @@ function RootLayoutNav() {
     <Stack screenOptions={{ headerBackTitle: 'Back', headerShown: false }}>
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="reader/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="import-review" options={{ headerShown: false }} />
     </Stack>
   );
 }
@@ -48,11 +51,13 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <ErrorBoundary>
         <QueryClientProvider client={queryClient}>
-          <GestureHandlerRootView>
-            <KeyboardProvider>
-              <RootLayoutNav />
-            </KeyboardProvider>
-          </GestureHandlerRootView>
+          <ChatLibraryProvider initialArchives={mockChats}>
+            <GestureHandlerRootView>
+              <KeyboardProvider>
+                <RootLayoutNav />
+              </KeyboardProvider>
+            </GestureHandlerRootView>
+          </ChatLibraryProvider>
         </QueryClientProvider>
       </ErrorBoundary>
     </SafeAreaProvider>
