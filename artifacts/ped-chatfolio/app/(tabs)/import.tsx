@@ -67,6 +67,7 @@ export default function ImportScreen() {
           messageCount: parsed.messages.length,
           participantCount: parsed.participants.length,
           ignoredLineCount: parsed.ignoredLineCount,
+          diagnostics: __DEV__ ? parsed.diagnostics : undefined,
         });
       } catch (parseError) {
         console.warn('[PED Chatfolio import] WhatsApp parse failed', {

@@ -11,6 +11,30 @@ export type WhatsAppParseResult = {
   ignoredLineCount: number;
   firstMessageDate: string | null;
   lastMessageDate: string | null;
+  diagnostics: WhatsAppParserDiagnostics;
+};
+
+export type WhatsAppParserDiagnostics = {
+  inferredDateConvention: DateConvention;
+  rejectedTimestampLines: WhatsAppRejectedTimestampLine[];
+};
+
+export type WhatsAppRejectedTimestampLine = {
+  lineNumber: number;
+  characterCount: number;
+  timestampPrefixDetected: boolean;
+  detectedDate: string | null;
+  detectedTime: string | null;
+  delimiterDetected: boolean;
+  senderSeparatorDetected: boolean;
+  timestampContextCodePoints: number[];
+  delimiterContextCodePoints: number[];
+  rejectedAt:
+    | 'message-start-regex'
+    | 'invalid-date'
+    | 'missing-sender-separator'
+    | 'known-system-message'
+    | 'timestamped-system-line';
 };
 
 type MessageStart = {
@@ -27,6 +51,9 @@ const BRACKETED_MESSAGE_START =
   /^\[(?<date>\d{1,2}\/\d{1,2}\/\d{2,4}),\s*(?<time>\d{1,2}:\d{2}(?:\s*[AaPp]\.?\s*[Mm]\.?)?)\]\s*-?\s*(?<content>.+)$/;
 const DATE_TIME_PREFIX =
   /^(?:\[)?\d{1,2}\/\d{1,2}\/\d{2,4},\s*\d{1,2}:\d{2}/;
+const STRUCTURAL_TIMESTAMP_PREFIX =
+  /^\s*\[?\s*(?<date>\d{1,2}\s*\/\s*\d{1,2}\s*\/\s*\d{2,4})\s*,\s*(?<time>\d{1,2}\s*:\s*\d{2}(?:\s*[AaPp]\.??\s*[Mm]\.??)?)?/;
+const DASH_DELIMITER = /\s[\-\u2010\u2011\u2012\u2013\u2014\u2212]\s/;
 
 const monthNames = [
   'January',
@@ -135,11 +162,59 @@ function isKnownSystemMessage(content: string): boolean {
   );
 }
 
+function codePointsAround(value: string, index: number): number[] {
+  if (index < 0) return [];
+  return Array.from(value.slice(Math.max(0, index - 4), index + 5)).map((character) =>
+    character.codePointAt(0) ?? 0,
+  );
+}
+
+function structuralTimestamp(line: string): {
+  date: string | null;
+  time: string | null;
+  prefixDetected: boolean;
+  timestampEnd: number;
+} {
+  const match = line.match(STRUCTURAL_TIMESTAMP_PREFIX);
+  return {
+    date: match?.groups?.date?.replace(/\s/g, '') ?? null,
+    time: match?.groups?.time?.replace(/\s/g, '') ?? null,
+    prefixDetected: Boolean(match),
+    timestampEnd: match?.[0].length ?? -1,
+  };
+}
+
+function createRejectedTimestampDiagnostic(
+  line: string,
+  lineNumber: number,
+  rejectedAt: WhatsAppRejectedTimestampLine['rejectedAt'],
+): WhatsAppRejectedTimestampLine | null {
+  const timestamp = structuralTimestamp(line);
+  if (!timestamp.prefixDetected) return null;
+
+  const delimiterIndex = line.search(DASH_DELIMITER);
+  const contentStart = timestamp.timestampEnd;
+  const senderSeparatorIndex = line.indexOf(':', contentStart);
+  return {
+    lineNumber,
+    characterCount: line.length,
+    timestampPrefixDetected: true,
+    detectedDate: timestamp.date,
+    detectedTime: timestamp.time,
+    delimiterDetected: delimiterIndex >= 0,
+    senderSeparatorDetected: senderSeparatorIndex >= 0,
+    timestampContextCodePoints: codePointsAround(line, Math.max(0, contentStart - 1)),
+    delimiterContextCodePoints: codePointsAround(line, delimiterIndex),
+    rejectedAt,
+  };
+}
+
 export function parseWhatsAppExport(text: string): WhatsAppParseResult {
   const messages: ParsedWhatsAppMessage[] = [];
   const participants: string[] = [];
   let current: Omit<ParsedWhatsAppMessage, 'id'> | null = null;
   let ignoredLineCount = 0;
+  const rejectedTimestampLines: WhatsAppRejectedTimestampLine[] = [];
 
   const flushCurrent = () => {
     if (!current) return;
@@ -156,19 +231,28 @@ export function parseWhatsAppExport(text: string): WhatsAppParseResult {
     .filter((start): start is MessageStart => Boolean(start));
   const dateConvention = inferDateConvention(parsedStarts.map((start) => start.date));
 
-  for (const rawLine of lines) {
+  for (const [lineIndex, rawLine] of lines.entries()) {
+    const lineNumber = lineIndex + 1;
     const line = rawLine.replace(/[\u200e\u200f]/g, '').replace(/\u202f/g, ' ').trimEnd();
     const start = parseMessageStart(line);
 
     if (start) {
       const date = parseDate(start.date, dateConvention);
       if (isKnownSystemMessage(start.content)) {
+        const diagnostic = createRejectedTimestampDiagnostic(line, lineNumber, 'known-system-message');
+        if (diagnostic) rejectedTimestampLines.push(diagnostic);
         flushCurrent();
         ignoredLineCount += 1;
         continue;
       }
       const senderAndText = splitSenderAndText(start.content);
       if (!date || !senderAndText) {
+        const diagnostic = createRejectedTimestampDiagnostic(
+          line,
+          lineNumber,
+          !date ? 'invalid-date' : 'missing-sender-separator',
+        );
+        if (diagnostic) rejectedTimestampLines.push(diagnostic);
         flushCurrent();
         ignoredLineCount += 1;
         continue;
@@ -191,10 +275,15 @@ export function parseWhatsAppExport(text: string): WhatsAppParseResult {
     }
 
     if (isTimestampedSystemLine(line)) {
+      const diagnostic = createRejectedTimestampDiagnostic(line, lineNumber, 'timestamped-system-line');
+      if (diagnostic) rejectedTimestampLines.push(diagnostic);
       flushCurrent();
       ignoredLineCount += 1;
       continue;
     }
+
+    const diagnostic = createRejectedTimestampDiagnostic(line, lineNumber, 'message-start-regex');
+    if (diagnostic) rejectedTimestampLines.push(diagnostic);
 
     if (current) {
       current.text = `${current.text}\n${line}`;
@@ -211,6 +300,10 @@ export function parseWhatsAppExport(text: string): WhatsAppParseResult {
     ignoredLineCount,
     firstMessageDate: messages[0]?.date ?? null,
     lastMessageDate: messages.at(-1)?.date ?? null,
+    diagnostics: {
+      inferredDateConvention: dateConvention,
+      rejectedTimestampLines,
+    },
   };
 }
 
