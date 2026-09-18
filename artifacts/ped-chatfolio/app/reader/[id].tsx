@@ -4,7 +4,6 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { IconButton } from '@/components/IconButton';
 import { MessageRow } from '@/components/MessageRow';
-import { getChatById } from '@/data/mockChats';
 import { useChatLibrary } from '@/context/ChatLibraryContext';
 import { useColors } from '@/hooks/useColors';
 
@@ -12,8 +11,20 @@ export default function ChatReaderScreen() {
   const colors = useColors();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { getArchiveById } = useChatLibrary();
-  const chat = getArchiveById(id) ?? getChatById(id);
+  const chat = getArchiveById(id);
   let previousDate = '';
+
+  if (!chat) {
+    return (
+      <SafeAreaView edges={['top']} style={[styles.safe, { backgroundColor: colors.background }]}>
+        <View style={styles.missing}>
+          <IconButton name="arrow-left" label="Back to library" onPress={() => router.back()} light />
+          <Text style={[styles.missingTitle, { color: colors.foreground }]}>Archive not found</Text>
+          <Text style={[styles.missingText, { color: colors.mutedForeground }]}>This local archive is no longer available on this device.</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView edges={['top']} style={[styles.safe, { backgroundColor: colors.background }]}>
@@ -82,4 +93,7 @@ const styles = StyleSheet.create({
   dateLabel: { fontSize: 10, fontFamily: 'Inter_600SemiBold', textTransform: 'uppercase', letterSpacing: 0.7 },
   endNote: { flexDirection: 'row', alignItems: 'center', gap: 9, borderTopWidth: 1, paddingTop: 16, marginTop: 12 },
   endText: { flex: 1, fontSize: 12, lineHeight: 18, fontFamily: 'Inter_400Regular' },
+  missing: { flex: 1, padding: 20, gap: 18 },
+  missingTitle: { fontSize: 22, fontFamily: 'Inter_700Bold', marginTop: 40 },
+  missingText: { fontSize: 14, lineHeight: 21, fontFamily: 'Inter_400Regular' },
 });

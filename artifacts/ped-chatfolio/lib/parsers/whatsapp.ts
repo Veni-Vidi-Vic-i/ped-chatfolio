@@ -19,10 +19,12 @@ type MessageStart = {
   content: string;
 };
 
+type DateConvention = 'month-first' | 'day-first';
+
 const STANDARD_MESSAGE_START =
   /^(?<date>\d{1,2}\/\d{1,2}\/\d{2,4}),\s*(?<time>\d{1,2}:\d{2}(?:\s*[AaPp]\.?\s*[Mm]\.?)?)\s+-\s+(?<content>.+)$/;
 const BRACKETED_MESSAGE_START =
-  /^\[(?<date>\d{1,2}\/\d{1,2}\/\d{2,4}),\s*(?<time>\d{1,2}:\d{2}(?:\s*[AaPp]\.?\s*[Mm]\.?)?)\]\s*(?<content>.+)$/;
+  /^\[(?<date>\d{1,2}\/\d{1,2}\/\d{2,4}),\s*(?<time>\d{1,2}:\d{2}(?:\s*[AaPp]\.?\s*[Mm]\.?)?)\]\s*-?\s*(?<content>.+)$/;
 const DATE_TIME_PREFIX =
   /^(?:\[)?\d{1,2}\/\d{1,2}\/\d{2,4},\s*\d{1,2}:\d{2}/;
 
@@ -61,66 +63,18 @@ function parseMessageStart(line: string): MessageStart | null {
   };
 }
 
-function parseDate(rawDate: string): { dateKey: string; label: string } | null {
-  const parts = rawDate.split('/');
-  if (parts.length !== 3) return null;
-
-  const first = Number(parts[0]);
-  const second = Number(parts[1]);
-  const yearText = parts[2];
-
-  const year =
-    yearText.length === 2
-      ? 2000 + Number(yearText)
-      : Number(yearText);
-
-  if (
-    !Number.isInteger(first) ||
-    !Number.isInteger(second) ||
-    !Number.isInteger(year)
-  ) {
-    return null;
-  }
-
-  let day: number;
-  let month: number;
-
-  /*
-   * WhatsApp exports can use either:
-   * DD/MM/YY
-   * MM/DD/YY
-   *
-   * If one component is greater than 12, we can determine
-   * the format safely.
-   */
-  if (first > 12 && second <= 12) {
-    // DD/MM/YY
-    day = first;
-    month = second;
-  } else if (second > 12 && first <= 12) {
-    // MM/DD/YY
-    month = first;
-    day = second;
-  } else {
-    /*
-     * Ambiguous dates such as 8/4/26 could mean
-     * 8 April or August 4.
-     *
-     * For now, default to MM/DD/YY because the current
-     * export has been identified as using that format.
-     */
-    month = first;
-    day = second;
-  }
-
-  if (
-    month < 1 ||
-    month > 12 ||
-    day < 1 ||
-    day > 31
-  ) {
-    return null;
-  }
+function parseDate(
+  rawDate: string,
+  convention: DateConvention,
+): { dateKey: string; label: string } | null {
+  const [dayText, monthText, yearText] = rawDate.split('/');
+  const first = Number(dayText);
+  const second = Number(monthText);
+  const day = convention === 'month-first' ? second : first;
+  const month = convention === 'month-first' ? first : second;
+  const year = yearText.length === 2 ? 2000 + Number(yearText) : Number(yearText);
+  if (!Number.isInteger(day) || !Number.isInteger(month) || !Number.isInteger(year)) return null;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
 
   const parsed = new Date(year, month - 1, day);
 
@@ -144,6 +98,22 @@ function parseDate(rawDate: string): { dateKey: string; label: string } | null {
   return { dateKey, label };
 }
 
+function inferDateConvention(rawDates: string[]): DateConvention {
+  let hasMonthFirstEvidence = false;
+  let hasDayFirstEvidence = false;
+
+  for (const rawDate of rawDates) {
+    const [firstText, secondText] = rawDate.split('/');
+    const first = Number(firstText);
+    const second = Number(secondText);
+    if (first > 12 && second <= 12) hasDayFirstEvidence = true;
+    if (second > 12 && first <= 12) hasMonthFirstEvidence = true;
+  }
+
+  // Ambiguous exports are conventionally emitted month-first by WhatsApp.
+  return hasDayFirstEvidence && !hasMonthFirstEvidence ? 'day-first' : 'month-first';
+}
+
 function splitSenderAndText(content: string): { sender: string; text: string } | null {
   const separatorIndex = content.indexOf(':');
   if (separatorIndex <= 0) return null;
@@ -157,6 +127,12 @@ function splitSenderAndText(content: string): { sender: string; text: string } |
 
 function isTimestampedSystemLine(line: string): boolean {
   return DATE_TIME_PREFIX.test(line);
+}
+
+function isKnownSystemMessage(content: string): boolean {
+  return /^(?:messages and calls are|this message was deleted|you deleted this message|you changed the security code|security code changed|waiting for this message)/i.test(
+    content.trim(),
+  );
 }
 
 export function parseWhatsAppExport(text: string): WhatsAppParseResult {
@@ -175,12 +151,22 @@ export function parseWhatsAppExport(text: string): WhatsAppParseResult {
   };
 
   const lines = text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').split('\n');
+  const parsedStarts = lines
+    .map((rawLine) => parseMessageStart(rawLine.replace(/[\u200e\u200f]/g, '').replace(/\u202f/g, ' ').trimEnd()))
+    .filter((start): start is MessageStart => Boolean(start));
+  const dateConvention = inferDateConvention(parsedStarts.map((start) => start.date));
+
   for (const rawLine of lines) {
     const line = rawLine.replace(/[\u200e\u200f]/g, '').replace(/\u202f/g, ' ').trimEnd();
     const start = parseMessageStart(line);
 
     if (start) {
-      const date = parseDate(start.date);
+      const date = parseDate(start.date, dateConvention);
+      if (isKnownSystemMessage(start.content)) {
+        flushCurrent();
+        ignoredLineCount += 1;
+        continue;
+      }
       const senderAndText = splitSenderAndText(start.content);
       if (!date || !senderAndText) {
         flushCurrent();

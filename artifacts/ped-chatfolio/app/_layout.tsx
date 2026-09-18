@@ -5,7 +5,6 @@ import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { ChatLibraryProvider } from '@/context/ChatLibraryContext';
-import { mockChats } from '@/data/mockChats';
 import {
   Inter_400Regular,
   Inter_500Medium,
@@ -51,7 +50,7 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <ErrorBoundary>
         <QueryClientProvider client={queryClient}>
-          <ChatLibraryProvider initialArchives={mockChats}>
+          <ChatLibraryProvider>
             <GestureHandlerRootView>
               <KeyboardProvider>
                 <RootLayoutNav />

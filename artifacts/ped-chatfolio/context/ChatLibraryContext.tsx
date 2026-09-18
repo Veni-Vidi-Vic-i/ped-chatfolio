@@ -1,6 +1,7 @@
-import { createContext, useContext, useMemo, useState, type PropsWithChildren } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react';
 import type { ChatArchive } from '@/data/mockChats';
 import type { ParsedWhatsAppMessage } from '@/lib/parsers/whatsapp';
+import { loadChatArchives, saveChatArchives } from '@/lib/storage/chatArchiveStorage';
 
 export type PendingImport = {
   fileName: string;
@@ -17,6 +18,8 @@ type ChatLibraryContextValue = {
   archives: ChatArchive[];
   pendingImport: PendingImport | null;
   addArchive: (archive: ChatArchive) => void;
+  updateArchive: (archive: ChatArchive) => void;
+  deleteArchive: (id: string) => void;
   getArchiveById: (id: string | undefined) => ChatArchive | undefined;
   setPendingImport: (pending: PendingImport) => void;
   clearPendingImport: () => void;
@@ -24,15 +27,34 @@ type ChatLibraryContextValue = {
 
 const ChatLibraryContext = createContext<ChatLibraryContextValue | null>(null);
 
-export function ChatLibraryProvider({ children, initialArchives }: PropsWithChildren<{ initialArchives: ChatArchive[] }>) {
-  const [archives, setArchives] = useState<ChatArchive[]>(initialArchives);
+export function ChatLibraryProvider({ children }: PropsWithChildren) {
+  const [archives, setArchives] = useState<ChatArchive[]>([]);
+  const [hydrated, setHydrated] = useState(false);
   const [pendingImport, setPendingImportState] = useState<PendingImport | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    loadChatArchives().then((storedArchives) => {
+      if (!active) return;
+      setArchives(storedArchives);
+      setHydrated(true);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (hydrated) void saveChatArchives(archives);
+  }, [archives, hydrated]);
 
   const value = useMemo<ChatLibraryContextValue>(
     () => ({
       archives,
       pendingImport,
       addArchive: (archive) => setArchives((current) => [archive, ...current]),
+      updateArchive: (archive) => setArchives((current) => current.map((item) => item.id === archive.id ? archive : item)),
+      deleteArchive: (id) => setArchives((current) => current.filter((archive) => archive.id !== id)),
       getArchiveById: (id) => archives.find((archive) => archive.id === id),
       setPendingImport: (pending) => setPendingImportState(pending),
       clearPendingImport: () => setPendingImportState(null),
